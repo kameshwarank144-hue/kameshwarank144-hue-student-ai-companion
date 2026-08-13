@@ -1,198 +1,233 @@
 // lib/core/services/workmanager_service.dart
 
-import 'package:flutter/material.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+// ---------------------------------------------------------------------
+// 1. Imports
+// ---------------------------------------------------------------------
+
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:workmanager/workmanager.dart';
 
+import '../utils/logger.dart';
+import 'notification_service.dart';
+import 'sync_service.dart';
+
 // ---------------------------------------------------------------------
-// Singleton
+// 2. Task Constants
 // ---------------------------------------------------------------------
 
-/// Background task manager for Student AI Companion.
+/// The unique Workmanager task names used throughout the background
+/// scheduling pipeline.
+class _BackgroundTasks {
+  _BackgroundTasks._();
+
+  static const String syncNow = 'sync_now_task';
+  static const String timetableReminder = 'timetable_reminder_task';
+  static const String attendanceCheck = 'attendance_check_task';
+  static const String waterReminder = 'water_reminder_task';
+  static const String sleepReminder = 'sleep_reminder_task';
+  static const String studyStreak = 'study_streak_task';
+  static const String dailyMotivation = 'daily_motivation_task';
+  static const String analyticsRefresh = 'analytics_refresh_task';
+}
+
+// ---------------------------------------------------------------------
+// 3. WorkmanagerService
+// ---------------------------------------------------------------------
+
+/// Background task scheduler for Student AI Companion.
 ///
-/// Keeps Nova AI caring for the student even when the app is closed, in
-/// the background, or the phone is locked — night-before class
-/// reminders, daily AI check-ins, attendance monitoring, water and sleep
-/// reminders, study streak nudges, analytics refresh, and cloud sync.
+/// Manages timetable reminder preparation, todo reminder sync,
+/// attendance health checks, water and sleep reminders, study streak
+/// updates, daily motivation notifications, offline data sync, and
+/// analytics snapshot refresh — all continuing to run even when the app
+/// is closed or the device is locked.
 class WorkmanagerService {
   WorkmanagerService._();
 
   static final WorkmanagerService instance = WorkmanagerService._();
 
   // ---------------------------------------------------------------------
-  // Task Constants
+  // 4. Internal State
   // ---------------------------------------------------------------------
 
-  static const String timetableReminderTask = 'timetable_reminder_task';
-  static const String aiCheckInTask = 'ai_check_in_task';
-  static const String attendanceCheckTask = 'attendance_check_task';
-  static const String waterReminderTask = 'water_reminder_task';
-  static const String studyReminderTask = 'study_reminder_task';
-  static const String sleepReminderTask = 'sleep_reminder_task';
-  static const String analyticsRefreshTask = 'analytics_refresh_task';
-  static const String cloudSyncTask = 'cloud_sync_task';
+  bool _initialized = false;
+
+  bool get isInitialized => _initialized;
 
   // ---------------------------------------------------------------------
-  // Initialization
+  // 5. Initialization
   // ---------------------------------------------------------------------
 
-  /// Initializes the Workmanager plugin with [workmanagerCallbackDispatcher]
-  /// as the background entry point. Must be called once, typically in
-  /// `main()`, before registering any tasks.
+  /// Initializes the Workmanager plugin with [callbackDispatcher] as the
+  /// background entry point. Safe to call more than once — subsequent
+  /// calls are no-ops.
   Future<void> initialize() async {
+    if (_initialized) {
+      AppLogger.debug(LogCategory.app, '[WORKMANAGER] Already initialized');
+      return;
+    }
+
     try {
       await Workmanager().initialize(
-        workmanagerCallbackDispatcher,
-        isInDebugMode: true,
+        callbackDispatcher,
+        isInDebugMode: kDebugMode,
       );
-      debugPrint('Workmanager initialized');
-    } catch (error) {
-      debugPrint('WorkmanagerService.initialize failed: $error');
+      _initialized = true;
+      AppLogger.info(LogCategory.app, '[WORKMANAGER] Initialized successfully');
+    } catch (error, stackTrace) {
+      AppLogger.error(
+        LogCategory.app,
+        '[WORKMANAGER] Initialization failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
     }
   }
 
   // ---------------------------------------------------------------------
-  // Task Registration
+  // 8. One-Time Tasks
   // ---------------------------------------------------------------------
 
-  /// Registers a one-off, night-before reminder to check tomorrow's
-  /// timetable.
-  Future<void> registerNightBeforeTimetableTask() async {
+  /// Triggers an immediate one-off sync via Workmanager.
+  Future<void> runSyncNow() async {
     try {
       await Workmanager().registerOneOffTask(
-        timetableReminderTask,
-        timetableReminderTask,
-        initialDelay: const Duration(hours: 1),
+        _BackgroundTasks.syncNow,
+        _BackgroundTasks.syncNow,
       );
-      debugPrint('Timetable reminder task registered');
+      AppLogger.info(LogCategory.network, '[WORKMANAGER] One-off sync task registered');
     } catch (error) {
-      debugPrint(
-        'WorkmanagerService.registerNightBeforeTimetableTask failed: $error',
-      );
+      AppLogger.error(LogCategory.network, '[WORKMANAGER] runSyncNow failed', error: error);
     }
-  }
-
-  /// Registers a periodic (every 24 hours) AI companion check-in.
-  Future<void> registerDailyAiCheckIn() async {
-    try {
-      await Workmanager().registerPeriodicTask(
-        aiCheckInTask,
-        aiCheckInTask,
-        frequency: const Duration(hours: 24),
-      );
-      debugPrint('AI check-in task registered');
-    } catch (error) {
-      debugPrint('WorkmanagerService.registerDailyAiCheckIn failed: $error');
-    }
-  }
-
-  /// Registers a periodic (every 24 hours) attendance monitor task.
-  Future<void> registerAttendanceMonitor() async {
-    try {
-      await Workmanager().registerPeriodicTask(
-        attendanceCheckTask,
-        attendanceCheckTask,
-        frequency: const Duration(hours: 24),
-      );
-      debugPrint('Attendance monitor task registered');
-    } catch (error) {
-      debugPrint('WorkmanagerService.registerAttendanceMonitor failed: $error');
-    }
-  }
-
-  /// Registers a one-off water reminder task.
-  Future<void> registerWaterReminderTask() async {
-    try {
-      await Workmanager().registerOneOffTask(
-        waterReminderTask,
-        waterReminderTask,
-        initialDelay: const Duration(hours: 1),
-      );
-      debugPrint('Water reminder task registered');
-    } catch (error) {
-      debugPrint('WorkmanagerService.registerWaterReminderTask failed: $error');
-    }
-  }
-
-  /// Registers a one-off study session reminder task.
-  Future<void> registerStudyReminderTask() async {
-    try {
-      await Workmanager().registerOneOffTask(
-        studyReminderTask,
-        studyReminderTask,
-        initialDelay: const Duration(hours: 1),
-      );
-      debugPrint('Study reminder task registered');
-    } catch (error) {
-      debugPrint('WorkmanagerService.registerStudyReminderTask failed: $error');
-    }
-  }
-
-  /// Registers a one-off sleep reminder task.
-  Future<void> registerSleepReminderTask() async {
-    try {
-      await Workmanager().registerOneOffTask(
-        sleepReminderTask,
-        sleepReminderTask,
-        initialDelay: const Duration(hours: 1),
-      );
-      debugPrint('Sleep reminder task registered');
-    } catch (error) {
-      debugPrint('WorkmanagerService.registerSleepReminderTask failed: $error');
-    }
-  }
-
-  /// Registers a periodic (every 24 hours) analytics refresh task.
-  Future<void> registerAnalyticsRefreshTask() async {
-    try {
-      await Workmanager().registerPeriodicTask(
-        analyticsRefreshTask,
-        analyticsRefreshTask,
-        frequency: const Duration(hours: 24),
-      );
-      debugPrint('Analytics refresh task registered');
-    } catch (error) {
-      debugPrint(
-        'WorkmanagerService.registerAnalyticsRefreshTask failed: $error',
-      );
-    }
-  }
-
-  /// Registers a periodic (every 6 hours) cloud sync placeholder task.
-  Future<void> registerCloudSyncTask() async {
-    try {
-      await Workmanager().registerPeriodicTask(
-        cloudSyncTask,
-        cloudSyncTask,
-        frequency: const Duration(hours: 6),
-      );
-      debugPrint('Cloud sync task registered');
-    } catch (error) {
-      debugPrint('WorkmanagerService.registerCloudSyncTask failed: $error');
-    }
-  }
-
-  /// Registers the core set of recurring background tasks that should
-  /// always be active: AI check-in, attendance monitoring, analytics
-  /// refresh, and cloud sync.
-  Future<void> registerAllDefaultTasks() async {
-    await registerDailyAiCheckIn();
-    await registerAttendanceMonitor();
-    await registerAnalyticsRefreshTask();
-    await registerCloudSyncTask();
   }
 
   // ---------------------------------------------------------------------
-  // Task Cancellation
+  // 9. Periodic Tasks
+  // ---------------------------------------------------------------------
+
+  /// Registers a periodic background sync, running every [frequency]
+  /// (default 6 hours).
+  Future<void> registerPeriodicSync({
+    Duration frequency = const Duration(hours: 6),
+  }) async {
+    try {
+      await Workmanager().registerPeriodicTask(
+        _BackgroundTasks.syncNow,
+        _BackgroundTasks.syncNow,
+        frequency: frequency,
+        existingWorkPolicy: ExistingWorkPolicy.keep,
+      );
+      AppLogger.info(LogCategory.network, '[WORKMANAGER] Periodic sync registered');
+    } catch (error) {
+      AppLogger.error(LogCategory.network, '[WORKMANAGER] registerPeriodicSync failed', error: error);
+    }
+  }
+
+  /// Registers the night-before timetable reminder, running every 24
+  /// hours.
+  Future<void> registerNightBeforeReminder() async {
+    try {
+      await Workmanager().registerPeriodicTask(
+        _BackgroundTasks.timetableReminder,
+        _BackgroundTasks.timetableReminder,
+        frequency: const Duration(hours: 24),
+        existingWorkPolicy: ExistingWorkPolicy.keep,
+      );
+      AppLogger.info(LogCategory.app, '[WORKMANAGER] Night-before reminder registered');
+    } catch (error) {
+      AppLogger.error(LogCategory.app, '[WORKMANAGER] registerNightBeforeReminder failed', error: error);
+    }
+  }
+
+  /// Registers the water reminder task, running every 2 hours.
+  Future<void> registerWaterReminder() async {
+    try {
+      await Workmanager().registerPeriodicTask(
+        _BackgroundTasks.waterReminder,
+        _BackgroundTasks.waterReminder,
+        frequency: const Duration(hours: 2),
+        existingWorkPolicy: ExistingWorkPolicy.keep,
+      );
+      AppLogger.info(LogCategory.health, '[WORKMANAGER] Water reminder registered');
+    } catch (error) {
+      AppLogger.error(LogCategory.health, '[WORKMANAGER] registerWaterReminder failed', error: error);
+    }
+  }
+
+  /// Registers the sleep reminder task, running every 24 hours.
+  Future<void> registerSleepReminder() async {
+    try {
+      await Workmanager().registerPeriodicTask(
+        _BackgroundTasks.sleepReminder,
+        _BackgroundTasks.sleepReminder,
+        frequency: const Duration(hours: 24),
+        existingWorkPolicy: ExistingWorkPolicy.keep,
+      );
+      AppLogger.info(LogCategory.health, '[WORKMANAGER] Sleep reminder registered');
+    } catch (error) {
+      AppLogger.error(LogCategory.health, '[WORKMANAGER] registerSleepReminder failed', error: error);
+    }
+  }
+
+  /// Registers the daily motivation notification task, running every 24
+  /// hours.
+  Future<void> registerDailyMotivation() async {
+    try {
+      await Workmanager().registerPeriodicTask(
+        _BackgroundTasks.dailyMotivation,
+        _BackgroundTasks.dailyMotivation,
+        frequency: const Duration(hours: 24),
+        existingWorkPolicy: ExistingWorkPolicy.keep,
+      );
+      AppLogger.info(LogCategory.app, '[WORKMANAGER] Daily motivation registered');
+    } catch (error) {
+      AppLogger.error(LogCategory.app, '[WORKMANAGER] registerDailyMotivation failed', error: error);
+    }
+  }
+
+  /// Registers the study streak check task, running every 12 hours.
+  Future<void> registerStudyStreakCheck() async {
+    try {
+      await Workmanager().registerPeriodicTask(
+        _BackgroundTasks.studyStreak,
+        _BackgroundTasks.studyStreak,
+        frequency: const Duration(hours: 12),
+        existingWorkPolicy: ExistingWorkPolicy.keep,
+      );
+      AppLogger.info(LogCategory.study, '[WORKMANAGER] Study streak check registered');
+    } catch (error) {
+      AppLogger.error(LogCategory.study, '[WORKMANAGER] registerStudyStreakCheck failed', error: error);
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // 10. Bulk Registration
+  // ---------------------------------------------------------------------
+
+  /// Registers every recurring background task at once.
+  Future<void> registerAllTasks() async {
+    await registerPeriodicSync();
+    await registerNightBeforeReminder();
+    await registerWaterReminder();
+    await registerSleepReminder();
+    await registerDailyMotivation();
+    await registerStudyStreakCheck();
+    AppLogger.info(LogCategory.app, '[WORKMANAGER] All background tasks registered');
+  }
+
+  // ---------------------------------------------------------------------
+  // 11. Cancellation APIs
   // ---------------------------------------------------------------------
 
   /// Cancels a single registered task by its unique name.
   Future<void> cancelTask(String uniqueName) async {
     try {
       await Workmanager().cancelByUniqueName(uniqueName);
-      debugPrint('Cancelled task: $uniqueName');
+      AppLogger.info(LogCategory.app, '[WORKMANAGER] Cancelled task: $uniqueName');
     } catch (error) {
-      debugPrint('WorkmanagerService.cancelTask failed: $error');
+      AppLogger.error(LogCategory.app, '[WORKMANAGER] cancelTask failed', error: error);
     }
   }
 
@@ -200,304 +235,178 @@ class WorkmanagerService {
   Future<void> cancelAllTasks() async {
     try {
       await Workmanager().cancelAll();
-      debugPrint('Cancelled all background tasks');
+      AppLogger.info(LogCategory.app, '[WORKMANAGER] Cancelled all background tasks');
     } catch (error) {
-      debugPrint('WorkmanagerService.cancelAllTasks failed: $error');
+      AppLogger.error(LogCategory.app, '[WORKMANAGER] cancelAllTasks failed', error: error);
     }
+  }
+
+  // ---------------------------------------------------------------------
+  // 12. Debug Helpers
+  // ---------------------------------------------------------------------
+
+  /// A structured snapshot of this service's current state.
+  Map<String, dynamic> debugSnapshot() {
+    return <String, dynamic>{
+      'initialized': _initialized,
+      'timestamp': DateTime.now().toIso8601String(),
+      'supportedTasks': <String>[
+        _BackgroundTasks.syncNow,
+        _BackgroundTasks.timetableReminder,
+        _BackgroundTasks.attendanceCheck,
+        _BackgroundTasks.waterReminder,
+        _BackgroundTasks.sleepReminder,
+        _BackgroundTasks.studyStreak,
+        _BackgroundTasks.dailyMotivation,
+        _BackgroundTasks.analyticsRefresh,
+      ],
+    };
   }
 }
 
 // ---------------------------------------------------------------------
-// Background Dispatcher
+// 6. Callback Dispatcher
 // ---------------------------------------------------------------------
 
-const List<String> _aiCheckInMessages = <String>[
-  'Good morning ☀️ Ready to make today productive?',
-  'Small progress every day becomes big success ✨',
-  "Don't forget to drink water and take short study breaks 💧",
-  "I'm proud of your consistency. Keep going 📖",
-  'Sleep early tonight. Tomorrow is another opportunity 🌙',
-];
-
 /// Background entry point invoked by Workmanager for every registered
-/// task, even when the app is closed or the device is locked. Must be a
-/// top-level (or static) function annotated with `@pragma('vm:entry-point')`.
+/// task, even when the app is closed or the device is locked. Must
+/// remain a top-level function annotated with `@pragma('vm:entry-point')`.
 @pragma('vm:entry-point')
-void workmanagerCallbackDispatcher() {
-  Workmanager().executeTask((String taskName, Map<String, dynamic>? inputData) async {
-    debugPrint('Background task executed: $taskName');
+void callbackDispatcher() {
+  Workmanager().executeTask((String task, Map<String, dynamic>? inputData) async {
+    try {
+      await NotificationService.instance.initialize();
+      await SyncService.instance.initialize();
 
-    final FlutterLocalNotificationsPlugin plugin =
-        FlutterLocalNotificationsPlugin();
-    await _initializeBackgroundNotifications(plugin);
+      AppLogger.info(LogCategory.app, '[WORKMANAGER] Executing task: $task');
 
-    switch (taskName) {
-      case WorkmanagerService.timetableReminderTask:
-        await _showBackgroundNotification(
-          plugin,
-          id: 101,
-          title: "Tomorrow's Classes 📚",
-          body:
-              "Don't forget to check your timetable and keep your bag, "
-              'ID card, and charger ready for tomorrow.',
-        );
-        break;
+      switch (task) {
+        case _BackgroundTasks.syncNow:
+          await _handleSyncTask();
+          break;
+        case _BackgroundTasks.timetableReminder:
+          await _handleTimetableReminder();
+          break;
+        case _BackgroundTasks.attendanceCheck:
+          await _handleAttendanceCheck();
+          break;
+        case _BackgroundTasks.waterReminder:
+          await _handleWaterReminder();
+          break;
+        case _BackgroundTasks.sleepReminder:
+          await _handleSleepReminder();
+          break;
+        case _BackgroundTasks.studyStreak:
+          await _handleStudyStreak();
+          break;
+        case _BackgroundTasks.dailyMotivation:
+          await _handleDailyMotivation();
+          break;
+        case _BackgroundTasks.analyticsRefresh:
+          await _handleAnalyticsRefresh();
+          break;
+        default:
+          AppLogger.warning(LogCategory.app, '[WORKMANAGER] Unknown task: $task');
+      }
 
-      case WorkmanagerService.aiCheckInTask:
-        final int index =
-            DateTime.now().millisecondsSinceEpoch % _aiCheckInMessages.length;
-        await _showBackgroundNotification(
-          plugin,
-          id: 102,
-          title: 'Nova AI 💙',
-          body: _aiCheckInMessages[index],
-        );
-        break;
-
-      case WorkmanagerService.attendanceCheckTask:
-        await _showBackgroundNotification(
-          plugin,
-          id: 103,
-          title: 'Attendance Check 📊',
-          body:
-              "Make sure you attend tomorrow's classes regularly so your "
-              'attendance stays above the safe limit.',
-        );
-        break;
-
-      case WorkmanagerService.waterReminderTask:
-        await _showBackgroundNotification(
-          plugin,
-          id: 104,
-          title: 'Hydration Reminder 💧',
-          body:
-              'Take a moment to drink some water. Your brain studies '
-              'better when you stay hydrated.',
-        );
-        break;
-
-      case WorkmanagerService.studyReminderTask:
-        await _showBackgroundNotification(
-          plugin,
-          id: 105,
-          title: 'Focus Time 🎯',
-          body:
-              'A 25-minute focused study session is enough to make '
-              'meaningful progress today.',
-        );
-        break;
-
-      case WorkmanagerService.sleepReminderTask:
-        await _showBackgroundNotification(
-          plugin,
-          id: 106,
-          title: 'Good Night 🌙',
-          body:
-              'Put your phone down, relax your mind, and get enough '
-              "sleep for tomorrow's classes.",
-        );
-        break;
-
-      case WorkmanagerService.analyticsRefreshTask:
-        debugPrint('Analytics refreshed in the background.');
-        break;
-
-      case WorkmanagerService.cloudSyncTask:
-        debugPrint('Cloud sync placeholder executed in the background.');
-        break;
-
-      default:
-        debugPrint('Unknown background task: $taskName');
+      return Future.value(true);
+    } catch (error, stackTrace) {
+      AppLogger.error(
+        LogCategory.app,
+        '[WORKMANAGER] Task failed: $task',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return Future.value(false);
     }
-
-    return Future.value(true);
   });
 }
 
 // ---------------------------------------------------------------------
-// Notification Helpers
+// 7. Task Handlers
 // ---------------------------------------------------------------------
 
-/// Minimal, background-isolate-safe initialization for local
-/// notifications triggered from [workmanagerCallbackDispatcher].
-Future<void> _initializeBackgroundNotifications(
-  FlutterLocalNotificationsPlugin plugin,
-) async {
-  const AndroidInitializationSettings androidSettings =
-      AndroidInitializationSettings('@mipmap/ic_launcher');
-
-  const InitializationSettings initSettings = InitializationSettings(
-    android: androidSettings,
+/// Runs a full sync pass and logs the outcome.
+Future<void> _handleSyncTask() async {
+  final SyncResult result = await SyncService.instance.syncNow();
+  AppLogger.info(
+    LogCategory.network,
+    '[WORKMANAGER] Sync completed',
+    data: <String, dynamic>{
+      'success': result.success,
+      'syncedItems': result.syncedItems,
+      'failedItems': result.failedItems,
+    },
   );
-
-  await plugin.initialize(initSettings);
 }
 
-/// Shows a local notification from within a background task.
-Future<void> _showBackgroundNotification(
-  FlutterLocalNotificationsPlugin plugin, {
-  required int id,
-  required String title,
-  required String body,
-}) async {
-  const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-    'background_tasks',
-    'Background Tasks',
-    channelDescription: 'Notifications triggered by background tasks',
-    importance: Importance.high,
-    priority: Priority.high,
+/// Shows the night-before timetable preparation reminder.
+Future<void> _handleTimetableReminder() async {
+  await NotificationService.instance.show(
+    title: "Tomorrow's classes are ready 📚",
+    body: 'Pack your bag, charge your phone, and sleep well 🌙',
   );
+}
 
-  const NotificationDetails details = NotificationDetails(
-    android: androidDetails,
+/// Shows a gentle attendance check-in reminder.
+Future<void> _handleAttendanceCheck() async {
+  await NotificationService.instance.show(
+    title: 'Attendance Check 📊',
+    body: "Take a quick look at your attendance before tomorrow's classes.",
   );
+}
 
-  await plugin.show(id, title, body, details);
+/// Shows the hydration reminder.
+Future<void> _handleWaterReminder() async {
+  await NotificationService.instance.showWaterReminder();
+}
+
+/// Shows the wind-down / sleep reminder.
+Future<void> _handleSleepReminder() async {
+  await NotificationService.instance.showSleepReminder();
+}
+
+/// Shows the study streak encouragement notification.
+Future<void> _handleStudyStreak() async {
+  await NotificationService.instance.show(
+    title: 'Keep your streak alive 🔥',
+    body: 'Even 20 minutes of focused study keeps your momentum going.',
+  );
+}
+
+/// Shows a daily motivational message.
+Future<void> _handleDailyMotivation() async {
+  await NotificationService.instance.showMotivation();
+}
+
+/// Simulates a lightweight analytics snapshot refresh.
+Future<void> _handleAnalyticsRefresh() async {
+  await Future<void>.delayed(const Duration(seconds: 1));
+  AppLogger.info(LogCategory.analytics, '[WORKMANAGER] Analytics refresh completed');
 }
 
 // ---------------------------------------------------------------------
-// Demo
+// 13. Demo Utility
 // ---------------------------------------------------------------------
 
-/// A preview screen exercising every [WorkmanagerService] method on a
-/// dark futuristic background, with each action confirmed via a
-/// [SnackBar].
-class WorkmanagerServiceDemo extends StatelessWidget {
-  const WorkmanagerServiceDemo({super.key});
+/// A UI-independent demo of [WorkmanagerService], useful for quick
+/// manual testing of initialization, bulk registration, and one-off
+/// sync triggering.
+class WorkmanagerServiceDemo {
+  WorkmanagerServiceDemo._();
 
-  void _run(BuildContext context, String label, Future<void> Function() action) {
-    action();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(label)),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
+  static Future<Map<String, dynamic>> runDemo() async {
     final WorkmanagerService service = WorkmanagerService.instance;
 
-    return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: <Color>[
-              Color(0xFF050816),
-              Color(0xFF10102A),
-              Color(0xFF1B1040),
-            ],
-          ),
-        ),
-        child: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                const Text(
-                  'Background AI Service Demo',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'These background tasks allow Nova AI to care for the '
-                  'student even when the app is closed.',
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.6),
-                    fontSize: 13,
-                    height: 1.5,
-                  ),
-                ),
-                const SizedBox(height: 28),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: <Widget>[
-                    ElevatedButton(
-                      onPressed: () => _run(
-                        context,
-                        'Workmanager initialized',
-                        service.initialize,
-                      ),
-                      child: const Text('Initialize Workmanager'),
-                    ),
-                    ElevatedButton(
-                      onPressed: () => _run(
-                        context,
-                        'All default tasks registered',
-                        service.registerAllDefaultTasks,
-                      ),
-                      child: const Text('Register All Default Tasks'),
-                    ),
-                    ElevatedButton(
-                      onPressed: () => _run(
-                        context,
-                        'Timetable reminder scheduled',
-                        service.registerNightBeforeTimetableTask,
-                      ),
-                      child: const Text('Schedule Timetable Reminder'),
-                    ),
-                    ElevatedButton(
-                      onPressed: () => _run(
-                        context,
-                        'AI check-in scheduled',
-                        service.registerDailyAiCheckIn,
-                      ),
-                      child: const Text('Schedule AI Check-In'),
-                    ),
-                    ElevatedButton(
-                      onPressed: () => _run(
-                        context,
-                        'Attendance monitor scheduled',
-                        service.registerAttendanceMonitor,
-                      ),
-                      child: const Text('Schedule Attendance Monitor'),
-                    ),
-                    ElevatedButton(
-                      onPressed: () => _run(
-                        context,
-                        'Water reminder scheduled',
-                        service.registerWaterReminderTask,
-                      ),
-                      child: const Text('Schedule Water Reminder'),
-                    ),
-                    ElevatedButton(
-                      onPressed: () => _run(
-                        context,
-                        'Study reminder scheduled',
-                        service.registerStudyReminderTask,
-                      ),
-                      child: const Text('Schedule Study Reminder'),
-                    ),
-                    ElevatedButton(
-                      onPressed: () => _run(
-                        context,
-                        'Sleep reminder scheduled',
-                        service.registerSleepReminderTask,
-                      ),
-                      child: const Text('Schedule Sleep Reminder'),
-                    ),
-                    ElevatedButton(
-                      onPressed: () => _run(
-                        context,
-                        'All background tasks cancelled',
-                        service.cancelAllTasks,
-                      ),
-                      child: const Text('Cancel All Tasks'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
+    await service.initialize();
+    await service.registerAllTasks();
+    await service.runSyncNow();
+
+    return <String, dynamic>{
+      'initialized': service.isInitialized,
+      'registeredTaskCount': 6,
+      'syncTriggered': true,
+      'timestamp': DateTime.now().toIso8601String(),
+    };
   }
 }
-
